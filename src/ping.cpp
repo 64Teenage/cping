@@ -11,6 +11,7 @@ struct PingStatus CPingStatus;
 struct PingPacket CPingPacket[PACKET_SEND_MAX_NUM];
 */
 
+//根据ICMP协议填充相应字段
 void    icmpPackUp(struct icmp * pstIcmp, int iSeq, unsigned int dwLength, pid_t pid)
 {
     pstIcmp->icmp_type = ICMP_ECHO;
@@ -25,7 +26,7 @@ void    icmpPackUp(struct icmp * pstIcmp, int iSeq, unsigned int dwLength, pid_t
     pstIcmp->icmp_cksum = checkSum((unsigned short *)pstIcmp, dwLength);
 }
 
-
+//检验和计算
 unsigned short  checkSum(unsigned short *pwBuff, const unsigned int dwLength)
 {
     int     iSum = 0;
@@ -43,6 +44,7 @@ unsigned short  checkSum(unsigned short *pwBuff, const unsigned int dwLength)
     return ~iSum;
 }
 
+//数据解包
 int         icmpUnPack(char * psStream, int iLength, pid_t pid)
 {
     struct ip * pstIp = (struct ip *)psStream;
@@ -67,7 +69,7 @@ int         icmpUnPack(char * psStream, int iLength, pid_t pid)
         }
         */
 
-        pthread_mutex_lock(&CPingSync.mutex);
+        /*pthread_mutex_lock(&CPingSync.mutex);
         for (int pos=0; pos<PACKET_SEND_MAX_NUM; ++pos)
             if (CPingPacket[pos].m_bGet && CPingPacket[pos].m_wSeq == pstIcmp->icmp_seq)
             {
@@ -79,6 +81,21 @@ int         icmpUnPack(char * psStream, int iLength, pid_t pid)
             pthread_cond_signal(&CPingSync.cond);
         ++CPingSync.nready;
         pthread_mutex_unlock(&CPingSync.mutex);
+        */
+       {
+           //避免异常造成的锁未释放。
+           std::unique_lock<std::mutex> syncMutex(CPingSync.m_mutex);
+           for (int pos=0; pos<PACKET_SEND_MAX_NUM; ++pos)
+            if (CPingPacket[pos].m_bGet && CPingPacket[pos].m_wSeq == pstIcmp->icmp_seq)
+            {
+                tv_begin = CPingPacket[pos].m_tvBegin;
+                CPingPacket[pos].m_bGet = false;
+                break;
+            }
+            if (CPingSync.nready == 0)
+                CPingSync.m_cond.notify_one();
+            ++CPingSync.nready;
+       }
         
         gettimeofday(&tv_recv, NULL);
         tv_offset = timeOffset(tv_begin, tv_recv);
@@ -97,6 +114,7 @@ int         icmpUnPack(char * psStream, int iLength, pid_t pid)
     return 0;
 }
 
+//两个时间点之间的间隔
 struct timeval  timeOffset(struct timeval tv_begin, struct timeval tv_end)
 {
     struct timeval tv;
@@ -112,6 +130,7 @@ struct timeval  timeOffset(struct timeval tv_begin, struct timeval tv_end)
     return tv;
 }
 
+//发包
 void *    pingSend(void * args)
 {
     char pszSendBuff[128];
@@ -120,7 +139,7 @@ void *    pingSend(void * args)
 
     while (CPingStatus.m_bStatus)
     {
-        pthread_mutex_lock(&CPingSync.mutex);
+        /*pthread_mutex_lock(&CPingSync.mutex);
         while (CPingSync.nready == 0)
             pthread_cond_wait(&CPingSync.cond, &CPingSync.mutex);
         for (int pos=0; pos < PACKET_SEND_MAX_NUM; ++pos)
@@ -132,7 +151,25 @@ void *    pingSend(void * args)
                 break;
             }
         --CPingSync.nready;
-        pthread_mutex_unlock(&CPingSync.mutex);
+        pthread_mutex_unlock(&CPingSync.mutex);*/
+        
+        {
+            //避免异常退出导致锁未释放。
+            std::unique_lock<std::mutex>  syncMutex(CPingSync.m_mutex);
+            while(CPingSync.nready == 0)
+                CPingSync.m_cond.wait(syncMutex);
+            for (int pos=0; pos < PACKET_SEND_MAX_NUM; ++pos)
+                if (CPingPacket[pos].m_bGet == false)
+                {
+                    gettimeofday(&CPingPacket[pos].m_tvBegin, NULL);
+                    CPingPacket[pos].m_bGet = 1;
+                    CPingPacket[pos].m_wSeq = CPingStatus.m_iSendCnt;
+                    break;
+                }
+            --CPingSync.nready;
+
+        }
+
 
         icmpPackUp((struct icmp *)pszSendBuff, CPingStatus.m_iSendCnt, 64, CPingStatus.m_pid);
         ssize_t iSuccess = sendto(CPingStatus.m_iSockfd, pszSendBuff, 64, 0, (struct sockaddr *)&CPingStatus.m_sockServer, sizeof(CPingStatus.m_sockServer));
@@ -148,6 +185,7 @@ void *    pingSend(void * args)
     }
 }
 
+//收包
 void *   pingRecv(void * args)
 {
     struct timeval tv_overlap;
@@ -192,6 +230,7 @@ void *   pingRecv(void * args)
     }
 }
 
+//中断处理函数
 void    icmpSigInt(int signo)
 {
     CPingStatus.m_bStatus = false;

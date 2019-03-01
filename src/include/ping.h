@@ -8,6 +8,8 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <netinet/ip_icmp.h>
+#include <mutex>
+#include <condition_variable>
 
 #define PACKET_SEND_MAX_NUM     64
 
@@ -19,9 +21,12 @@ struct PingPacket {
 };
 
 struct PingSync {
-    pthread_mutex_t mutex;
-    pthread_cond_t  cond;
-    unsigned int    nready;
+    //pthread_mutex_t mutex;
+    //pthread_cond_t  cond;
+    
+    std::mutex              m_mutex;
+    std::condition_variable m_cond;
+    unsigned int            nready;
 };
 
 struct PingStatus {

@@ -8,7 +8,7 @@
 
 struct PingPacket   CPingPacket[PACKET_SEND_MAX_NUM];
 struct PingStatus   CPingStatus;
-struct PingSync     CPingSync = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PACKET_SEND_MAX_NUM};
+struct PingSync     CPingSync;
 
 int main(int argc, char ** argv)
 {
@@ -51,6 +51,9 @@ int main(int argc, char ** argv)
 
     CPingStatus.m_bStatus = true;
     CPingStatus.m_pid = getpid();
+
+    CPingSync.nready = PACKET_SEND_MAX_NUM;
+
     signal(SIGINT, icmpSigInt);
 
     iState = pthread_create(&pid_Send, NULL, pingSend, NULL);
