@@ -1,4 +1,6 @@
-# Cpp Implementation of ping under Unix
+# Cpp Implementation of ping under Unix  
+
+C++11实现的ping程序，目前仅支持Linux平台。  
 
 ## Dev Environment
 
